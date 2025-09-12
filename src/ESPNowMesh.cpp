@@ -544,99 +544,79 @@ void ESPNowMesh::checkPendingAcks() {
   }
 }
 
+// 兼容不同 ESP-IDF / Arduino-ESP32 版本的接收回调
+#if defined(ESP_IDF_VERSION) && (ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5,0,0))
 void ESPNowMesh::_onRecvStatic(const esp_now_recv_info_t *info, const uint8_t *data, int len)
 {
-  if (!instance)
-    return;
+  if (!instance) return;
 
-  // Special handling for direct discovery messages (non-mesh packet)
-  if (len < sizeof(MeshPacket) && len > 0)
-  {
-    // Could be a direct discovery message - try to interpret as string
+  const uint8_t *src = info->src_addr; // 统一命名
+  int rssi = info->rx_ctrl ? info->rx_ctrl->rssi : -50;
+
+  // 处理发现类短报文
+  if (len > 0 && len < (int)sizeof(MeshPacket)) {
     char msg[64] = {0};
-    int msgLen = (len < 63) ? len : 63;
+    int msgLen = len < 63 ? len : 63;
     memcpy(msg, data, msgLen);
-    msg[msgLen] = '\0'; // Ensure null termination
+    msg[msgLen] = '\0';
 
-    if (instance->debugMode)
-    { // Only show in verbose mode
-      Serial.print("[MESH] Received small packet: '");
-      Serial.print(msg);
-      Serial.print("' from ");
-      for (int i = 0; i < 6; i++)
-      {
-        Serial.printf("%02X", info->src_addr[i]);
-        if (i < 5)
-          Serial.print(":");
-      }
-      Serial.println();
-    }
-
-    if (strcmp(msg, "DISCOVERY_REQ") == 0)
-    {
-      // Add peer for response using efficient peer management
-      instance->managePeer(info->src_addr, instance->wifiChannel, false);
-
-      // Send direct discovery response after adding peer
+    if (strcmp(msg, "DISCOVERY_REQ") == 0) {
+      instance->managePeer(src, instance->wifiChannel, false);
       char rsp[64];
-      snprintf(rsp, sizeof(rsp), "DISCOVERY_RSP|%s|%lu",
-               instance->selfRole.c_str(), millis());
-
-      // Add random delay to avoid collisions
+      snprintf(rsp, sizeof(rsp), "DISCOVERY_RSP|%s|%lu", instance->selfRole.c_str(), millis());
       delay(random(10, 50));
-
-      if (instance->debugMode) {
-        uint8_t ourMac[6];
-        WiFi.macAddress(ourMac);
-        instance->debugLog("ESP-NOW SEND: Direct discovery response to %02X:%02X:%02X:%02X:%02X:%02X, from %02X:%02X:%02X:%02X:%02X:%02X, payload: %s",
-                info->src_addr[0], info->src_addr[1], info->src_addr[2], info->src_addr[3], info->src_addr[4], info->src_addr[5],
-                ourMac[0], ourMac[1], ourMac[2], ourMac[3], ourMac[4], ourMac[5],
-                rsp);
-      }
-      esp_err_t result = esp_now_send(info->src_addr, (uint8_t *)rsp, strlen(rsp) + 1);
-
-      if (result != ESP_OK && instance->debugMode)
-      {
-        Serial.printf("[MESH] Failed to send direct discovery response: %d\n", result);
-      }
+      esp_now_send(src, (uint8_t*)rsp, strlen(rsp) + 1);
       return;
-    }
-    else if (strncmp(msg, "DISCOVERY_RSP|", 14) == 0)
-    {
-      // Extract role
+    } else if (strncmp(msg, "DISCOVERY_RSP|", 14) == 0) {
       char *role = strchr(msg, '|');
-      if (role)
-      {
-        role++; // Skip past the |
-        // Find the next | if it exists
+      if (role) {
+        role++;
         char *end = strchr(role, '|');
-        if (end)
-          *end = '\0'; // Terminate at the |
-
-        if (instance->debugMode)
-        {
-          Serial.print("[MESH] Found neighbor with role: ");
-          Serial.println(role);
-        }
-
-        // Update neighbor table with RSSI from ESP-NOW info struct
-        int rssi = info->rx_ctrl->rssi;
-        if (instance->debugMode)
-        {
-          Serial.printf("[MESH] Packet RSSI: %d dBm\n", rssi);
-        }
-        instance->updateNeighbor(info->src_addr, role, rssi);
-
-        // Add as peer using efficient peer management
-        instance->managePeer(info->src_addr, instance->wifiChannel, false);
+        if (end) *end = '\0';
+        instance->updateNeighbor(src, role, rssi);
+        instance->managePeer(src, instance->wifiChannel, false);
       }
       return;
     }
   }
-
-  // Standard mesh packet handling - pass RSSI info to _onRecv
-  instance->_onRecv(info->src_addr, data, len, info->rx_ctrl->rssi);
+  instance->_onRecv(src, data, len, rssi);
 }
+#else
+void ESPNowMesh::_onRecvStatic(const uint8_t *mac, const uint8_t *data, int len)
+{
+  if (!instance) return;
+
+  // 旧版本无法直接获得 RSSI，这里使用默认值 -50，并通过后续 active 消息更新邻居 RSSI（如果有机制）
+  int rssi = -50;
+
+  if (len > 0 && len < (int)sizeof(MeshPacket)) {
+    char msg[64] = {0};
+    int msgLen = len < 63 ? len : 63;
+    memcpy(msg, data, msgLen);
+    msg[msgLen] = '\0';
+
+    if (strcmp(msg, "DISCOVERY_REQ") == 0) {
+      instance->managePeer(mac, instance->wifiChannel, false);
+      char rsp[64];
+      snprintf(rsp, sizeof(rsp), "DISCOVERY_RSP|%s|%lu", instance->selfRole.c_str(), millis());
+      delay(random(10, 50));
+      esp_now_send(mac, (uint8_t*)rsp, strlen(rsp) + 1);
+      return;
+    } else if (strncmp(msg, "DISCOVERY_RSP|", 14) == 0) {
+      char *role = strchr(msg, '|');
+      if (role) {
+        role++;
+        char *end = strchr(role, '|');
+        if (end) *end = '\0';
+        instance->updateNeighbor(mac, role, rssi);
+        instance->managePeer(mac, instance->wifiChannel, false);
+      }
+      return;
+    }
+  }
+  instance->_onRecv(mac, data, len, rssi);
+}
+#endif
 
 void ESPNowMesh::_onSendStatic(const uint8_t *mac, esp_now_send_status_t status)
 {

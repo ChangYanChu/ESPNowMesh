@@ -132,8 +132,14 @@ private:
   MeshCallback userCallback = nullptr;
 
   static ESPNowMesh* instance;
-  // Updated callback signatures for ESP32 Arduino core 3.2.0
+  // 针对不同 Arduino ESP32 内核版本的回调签名兼容处理
+  // 3.x (基于 IDF 5.x) 使用 esp_now_recv_info_t，新版提供 RSSI 等信息
+  // 早期 2.x (基于 IDF 4.x) 仍使用旧签名 (mac, data, len)
+#if defined(ESP_IDF_VERSION) && (ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5,0,0))
   static void _onRecvStatic(const esp_now_recv_info_t *info, const uint8_t *data, int len);
+#else
+  static void _onRecvStatic(const uint8_t *mac, const uint8_t *data, int len);
+#endif
   static void _onSendStatic(const uint8_t *mac_addr, esp_now_send_status_t status);
 
   void _onRecv(const uint8_t* mac, const uint8_t* data, int len, int rssi);
