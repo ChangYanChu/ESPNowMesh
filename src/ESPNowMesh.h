@@ -7,7 +7,9 @@
 #include <esp_wifi.h>
 
 #define MESH_MAX_PATH     8
+#ifndef MESH_PAYLOAD_LEN
 #define MESH_PAYLOAD_LEN  64
+#endif
 #define MESH_CACHE_SIZE   10
 #define MESH_TTL_DEFAULT  4
 #define DEFAULT_WIFI_CHANNEL 1  // Use channel 1 by default for better reliability
@@ -22,6 +24,13 @@
 
 class ESPNowMesh {
 public:
+  enum RoleSendStrategy {
+    ROLE_SEND_ALL,        // 向所有匹配角色的节点发送
+    ROLE_SEND_BEST_RSSI,  // 选择信号最强的节点发送
+    ROLE_SEND_RANDOM,     // 随机选择一个节点发送
+    ROLE_SEND_LAST_SEEN   // 选择最近通讯过的节点发送
+  };
+
   typedef void (*MeshCallback)(const char* msg, const uint8_t* sender);
   typedef void (*AckCallback)(uint32_t msg_id, const uint8_t* dest_mac);
 
@@ -79,6 +88,7 @@ public:
   void setAckRetries(uint8_t retries);
   void onSendSuccess(AckCallback cb);
   void onSendFailure(AckCallback cb);
+  uint8_t sendToRole(const char* role, const char* msg, uint8_t ttl = MESH_TTL_DEFAULT, bool reliable = false, RoleSendStrategy strategy = ROLE_SEND_ALL);
   
   // Handle incoming ACK - normally called internally, but exposed for custom ACK handling
   void _handleAck(uint32_t ack_id, const uint8_t* sender);

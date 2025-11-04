@@ -11,6 +11,17 @@
 
 #include <Arduino.h>
 #include "ESPNowMesh.h"
+#include <vector>
+
+// Define command callback function type
+typedef void (*CommandCallback)(const String& args);
+
+// Structure to hold custom command information
+struct CustomCommand {
+    String name;
+    String description;
+    CommandCallback callback;
+};
 
 class SerialTerminal {
 public:
@@ -25,6 +36,11 @@ public:
     void enableEcho(bool enable);
     void enablePrompt(bool enable);
     void setPrompt(const String& prompt);
+    
+    // Custom command management
+    void addCommand(const String& name, const String& description, CommandCallback callback);
+    void removeCommand(const String& name);
+    void clearCustomCommands();
     
     // Print help and status information
     void printHelp();
@@ -42,6 +58,9 @@ private:
     // Command buffer
     String commandBuffer;
     bool processingCommand = false;
+    
+    // Custom commands storage
+    std::vector<CustomCommand> customCommands;
     
     // Internal command handlers
     void handleCommand(String cmd);

@@ -1,4 +1,5 @@
 #include "SerialTerminal.h"
+#include <algorithm>
 
 // Constructor
 SerialTerminal::SerialTerminal(ESPNowMesh& meshInstance, Stream& serialPort)
@@ -166,8 +167,20 @@ void SerialTerminal::handleCommand(String cmd) {
         printHelp();
     }
     else {
-        serial.println("Unknown command. Type " + String(commandPrefix) + "help or " + 
-                      String(commandPrefix) + "? for available commands.");
+        // Check custom commands
+        bool commandFound = false;
+        for (const auto& customCmd : customCommands) {
+            if (customCmd.name.equalsIgnoreCase(command)) {
+                customCmd.callback(args);
+                commandFound = true;
+                break;
+            }
+        }
+        
+        if (!commandFound) {
+            serial.println("Unknown command. Type " + String(commandPrefix) + "help or " + 
+                          String(commandPrefix) + "? for available commands.");
+        }
     }
 }
 
@@ -340,6 +353,14 @@ void SerialTerminal::printHelp() {
     serial.println("  " + String(commandPrefix) + "status - Show current mesh status");
     serial.println("  " + String(commandPrefix) + "ping - Send ping to all nodes");
     serial.println("  " + String(commandPrefix) + "help, " + String(commandPrefix) + "? - Show this help message");
+    
+    // Show custom commands if any exist
+    if (!customCommands.empty()) {
+        serial.println("\nCustom commands:");
+        for (const auto& cmd : customCommands) {
+            serial.println("  " + String(commandPrefix) + cmd.name + " - " + cmd.description);
+        }
+    }
 }
 
 // Print status information
@@ -369,4 +390,38 @@ void SerialTerminal::printStatus() {
     
     // Show neighbor information
     cmdListNeighbors();
+}
+
+// Custom command management methods
+void SerialTerminal::addCommand(const String& name, const String& description, CommandCallback callback) {
+    // Check if command already exists
+    for (auto& cmd : customCommands) {
+        if (cmd.name.equalsIgnoreCase(name)) {
+            // Update existing command
+            cmd.description = description;
+            cmd.callback = callback;
+            return;
+        }
+    }
+    
+    // Add new command
+    CustomCommand newCmd;
+    newCmd.name = name;
+    newCmd.description = description;
+    newCmd.callback = callback;
+    customCommands.push_back(newCmd);
+}
+
+void SerialTerminal::removeCommand(const String& name) {
+    customCommands.erase(
+        std::remove_if(customCommands.begin(), customCommands.end(),
+            [&name](const CustomCommand& cmd) {
+                return cmd.name.equalsIgnoreCase(name);
+            }),
+        customCommands.end()
+    );
+}
+
+void SerialTerminal::clearCustomCommands() {
+    customCommands.clear();
 }

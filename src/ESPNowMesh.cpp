@@ -310,6 +310,7 @@ void ESPNowMesh::sendConfig(const char *jsonConfig, const uint8_t *target_mac, u
   send(jsonConfig, target_mac, ttl, 0); // Pass 0 as the message ID to auto-generate one
 }
 
+// Broadcast discovery request
 void ESPNowMesh::broadcastDiscovery()
 {
   if (debugMode)
@@ -1227,6 +1228,117 @@ bool ESPNowMesh::isPendingAckActive(int index)
     return false;
   }
   return pendingAcks[index].active;
+}
+
+/**
+ * 向匹配指定角色的邻居发送消息，可选择不同分发策略。
+ * @param role 目标角色名称，区分大小写。
+ * @param msg 待发送的消息文本。
+ * @param ttl Mesh 转发的生存时间。
+ * @param reliable 是否使用端到端可靠发送。
+ * @param strategy 角色筛选后的分发策略。
+ * @return 实际触达的节点数量。
+ */
+uint8_t ESPNowMesh::sendToRole(const char* role, const char* msg, uint8_t ttl, bool reliable, RoleSendStrategy strategy)
+{
+  if (!role || !msg)
+  {
+    return 0;
+  }
+
+  // 预先记录匹配角色的邻居索引，避免在策略分支中重复遍历
+  uint8_t matchedIndices[MESH_CACHE_SIZE];
+  uint8_t matchedCount = 0;
+
+  for (uint8_t i = 0; i < neighborCount && matchedCount < MESH_CACHE_SIZE; i++)
+  {
+    if (neighbors[i].role.equals(role))
+    {
+      matchedIndices[matchedCount++] = i;
+    }
+  }
+
+  if (matchedCount == 0)
+  {
+    if (debugMode)
+    {
+      debugLog("No neighbors with role %s found", role);
+    }
+    return 0;
+  }
+
+  // 内联助手：根据 reliable 标志选择可靠或普通发送
+  auto sendToNeighbor = [&](uint8_t index) {
+    if (reliable)
+    {
+      sendReliably(msg, neighbors[index].mac, ttl);
+    }
+    else
+    {
+      send(msg, neighbors[index].mac, ttl, 0);
+    }
+  };
+
+  switch (strategy)
+  {
+    case ROLE_SEND_ALL:
+    {
+      // 默认策略：向所有匹配节点发送
+      for (uint8_t i = 0; i < matchedCount; i++)
+      {
+        sendToNeighbor(matchedIndices[i]);
+      }
+      return matchedCount;
+    }
+
+    case ROLE_SEND_BEST_RSSI:
+    {
+      // 找到 RSSI 最优的节点
+      int bestRssi = -128;
+      uint8_t bestIdx = matchedIndices[0];
+      for (uint8_t i = 0; i < matchedCount; i++)
+      {
+        uint8_t neighborIdx = matchedIndices[i];
+        if (neighbors[neighborIdx].rssi > bestRssi)
+        {
+          bestRssi = neighbors[neighborIdx].rssi;
+          bestIdx = neighborIdx;
+        }
+      }
+      sendToNeighbor(bestIdx);
+      return 1;
+    }
+
+    case ROLE_SEND_RANDOM:
+    {
+      // 从匹配集合中随机挑选一个节点
+      uint8_t randIdx = matchedIndices[random(matchedCount)];
+      sendToNeighbor(randIdx);
+      return 1;
+    }
+
+    case ROLE_SEND_LAST_SEEN:
+    {
+      // 选择最近一次被看到的节点（lastSeen 越新越大）
+      unsigned long latestSeen = 0;
+      uint8_t latestIdx = matchedIndices[0];
+      for (uint8_t i = 0; i < matchedCount; i++)
+      {
+        uint8_t neighborIdx = matchedIndices[i];
+        if (neighbors[neighborIdx].lastSeen >= latestSeen)
+        {
+          latestSeen = neighbors[neighborIdx].lastSeen;
+          latestIdx = neighborIdx;
+        }
+      }
+      sendToNeighbor(latestIdx);
+      return 1;
+    }
+  }
+
+  // Fallback, should never reach here
+  sendToNeighbor(matchedIndices[0]);
+  return 1;
 }
 
 // Clear a pending ACK slot
