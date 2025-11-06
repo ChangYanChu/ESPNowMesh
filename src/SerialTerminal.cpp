@@ -110,7 +110,7 @@ void SerialTerminal::handleCommand(String cmd) {
     
     // Check if command has prefix
     if (cmd.charAt(0) != commandPrefix) {
-        serial.println("Commands must start with " + String(commandPrefix));
+        // serial.println("Commands must start with " + String(commandPrefix));
         return;
     }
     
@@ -194,23 +194,40 @@ void SerialTerminal::cmdListNeighbors() {
     uint8_t count;
     auto* neighbors = mesh.getNeighbors(count);
     
-    serial.println("\n=== NEIGHBOR LIST ===");
-    serial.printf("Total count: %d\n", count);
-    
+    const unsigned long now = millis();
+
+    serial.print('{');
+    serial.print("\"type\":\"neighbor_list\"");
+    serial.print(",\"count\":");
+    serial.print(count);
+    serial.print(",\"nodes\":[");
+
     for (int i = 0; i < count; i++) {
-        serial.print("  Node ");
+        const unsigned long lastSeenSeconds = (now - neighbors[i].lastSeen) / 1000;
+        char macBuffer[18];
+        snprintf(macBuffer, sizeof(macBuffer), "%02X:%02X:%02X:%02X:%02X:%02X",
+                 neighbors[i].mac[0], neighbors[i].mac[1], neighbors[i].mac[2],
+                 neighbors[i].mac[3], neighbors[i].mac[4], neighbors[i].mac[5]);
+
+        if (i > 0) {
+            serial.print(',');
+        }
+
+        serial.print('{');
+        serial.print("\"index\":");
         serial.print(i + 1);
-        serial.print(": ");
-        printMac(neighbors[i].mac);
-        serial.print("\n    Role: ");
+        serial.print(",\"mac\":\"");
+        serial.print(macBuffer);
+        serial.print("\",\"role\":\"");
         serial.print(neighbors[i].role);
-        serial.print("\n    RSSI: ");
+        serial.print("\",\"rssi\":");
         serial.print(neighbors[i].rssi);
-        serial.print(" dBm\n    Last seen: ");
-        serial.print((millis() - neighbors[i].lastSeen) / 1000);
-        serial.println(" seconds ago");
+        serial.print(",\"last_seen_secs\":");
+        serial.print(lastSeenSeconds);
+        serial.print('}');
     }
-    serial.println("=====================");
+
+    serial.println("]}");
 }
 
 void SerialTerminal::cmdBroadcast(const String& msg) {
