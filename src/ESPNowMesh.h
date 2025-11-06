@@ -7,9 +7,7 @@
 #include <esp_wifi.h>
 
 #define MESH_MAX_PATH     8
-#ifndef MESH_PAYLOAD_LEN
 #define MESH_PAYLOAD_LEN  64
-#endif
 #define MESH_CACHE_SIZE   10
 #define MESH_TTL_DEFAULT  4
 #define DEFAULT_WIFI_CHANNEL 1  // Use channel 1 by default for better reliability
@@ -78,6 +76,10 @@ public:
   void setMaxRetries(uint8_t retries);
   Neighbor* getNeighbors(uint8_t& count);
   const char* getRole() const; // Get current role
+  
+  // Helper to find neighbor by role and check its status
+  Neighbor* findNeighborByRole(const char* role);
+  bool isNeighborReachable(const char* role, unsigned long maxAgeMs = 15000);
 
   // Added functions to match implementation
   void clearDuplicateCache(); // Helper to clear message cache

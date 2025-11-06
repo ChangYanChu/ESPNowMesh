@@ -366,6 +366,29 @@ ESPNowMesh::Neighbor *ESPNowMesh::getNeighbors(uint8_t &count)
   return neighbors;
 }
 
+// Find neighbor by role
+ESPNowMesh::Neighbor* ESPNowMesh::findNeighborByRole(const char* role) {
+  if (!role) return nullptr;
+  
+  for (uint8_t i = 0; i < neighborCount; i++) {
+    if (neighbors[i].role.equalsIgnoreCase(role)) {
+      return &neighbors[i];
+    }
+  }
+  return nullptr;
+}
+
+// Check if neighbor with specific role is reachable
+bool ESPNowMesh::isNeighborReachable(const char* role, unsigned long maxAgeMs) {
+  Neighbor* neighbor = findNeighborByRole(role);
+  if (!neighbor) {
+    return false; // Neighbor not found
+  }
+  
+  unsigned long age = millis() - neighbor->lastSeen;
+  return age <= maxAgeMs;
+}
+
 // Add these setter methods somewhere in the implementation file
 void ESPNowMesh::setNeighborExpiry(unsigned long expiryTime) {
   neighborExpiryTime = expiryTime;
